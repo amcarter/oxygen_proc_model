@@ -1,0 +1,108 @@
+---
+title: "Inverse Oxygen Model"
+author: "Alice Carter"
+date: "6/24/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dygraphs)
+library(xts)
+library(lubridate)
+source("~/../git/oxygen_proc_model/src/batch_nhd_retrevial.R")
+source("~/../git/oxygen_proc_model/src/oxygen_dynamics_functions.R")
+```
+
+## Oxygen process model
+Start with a mass balance equation for oxygen concentration C:
+
+$$\frac{\delta VC}{\delta t} = -\left(\frac{\delta q_x}{\delta x} + \frac{\delta q_y}{\delta y} + \frac{\delta q_z}{\delta z}\right) + S$$
+
+where:
+$V$ = volume
+$C$ = concentration
+$q$ = mass fluxes due to advective and dispersive transport
+$S$ = sinks and sources
+
+Assume:
+Uniform flow/well mixed water column:
+
+$$\frac{\delta q_x}{\delta x} + \frac{\delta q_y}{\delta y} = 0$$
+$$\frac{\delta VC}{\delta t} = -\frac{\delta q_z}{\delta z} + S$$
+
+Integrate with respect to z and define fluxes per unit ground area A assuming the channel is rectangular with a depth of D
+
+$$\frac{\delta D\overline{C}}{\delta t} = q(D) - q(0) + \int_0^D Sdz$$
+
+where:
+$\overline{C}$ is the depth-averaged concentration,
+$q(D) = k(C_{sat} - \overline{C})$ is the exchange of oxygen with the atmosphere 
+$B(t) = -q(0) + \int_0^DSdz$ represents biological production and consumption of oxygen 
+
+So we can describe the biological time series as a function of $\overline{C}(t)$, depth, discharge, and riverbed slope using empirical equations:
+
+$$ B(t) = \frac{d(D\overline{C})}{dt} - k(C_{sat} - \overline{C})$$
+
+## Example Stream: 
+# New Hope Creek
+
+```{r, include = FALSE}
+dat <- read_csv("C:/Users/Alice Carter/git/nhc_50yl/NHC_2019_metabolism/data/metabolism/processed/NHC.csv")
+dat <- filter(dat, year(DateTime_UTC) == 2019)
+
+# load site data
+site <- read_csv("C:/Users/Alice Carter/git/nhc_50yl/NHC_2019_metabolism/data/siteData/NHCsite_metadata.csv")[1,] %>%
+  select(sitecode, latitude, longitude, CRS, slope)
+nhc_slope <- site$slope
+# xts(dat$DO.obs, dat[,1, drop = T]) %>%
+#   dygraph(ylab = "DO (mg/L)", main = "NHC dissolved oxygen")
+```
+
+```{r, echo = FALSE}
+dat %>% 
+  filter(month(dat$DateTime_UTC) == 3) %>%
+  ggplot(aes(DateTime_UTC, DO.obs)) +
+  geom_line() 
+```
+
+```{r}
+m_dat <- dat %>%
+  select(DateTime_UTC, DO.obs, avg_velocity, DO.sat, depth, temp.water) %>%
+  mutate(slope = nhc_slope,
+         # v_ms = calc_vel_from_disch(discharge),
+         k600_mean = calc_k600_raymond5(slope, avg_velocity),
+         # k600_min = calc_k600_raymond5(slope, avg_velocity)[2],
+         # k600_max = calc_k600_raymond5(slope, avg_velocity)[3],
+         k_O2_mean = kO2fromk600(k600_mean, temp.water),
+         q_D = k_O2_mean * (DO.sat - DO.obs)*24*4*depth, # mg/L/15min
+         dCdt = c(NA, diff(dat$DO.obs)), # mg/L/15min
+         B_t = dCdt - q_D) # biological timeseries
+         
+m_dat %>%
+  filter(month(DateTime_UTC) == 3) %>%
+  ggplot(aes(DateTime_UTC, DO.obs)) +
+  geom_line() +
+  geom_line(aes(DateTime_UTC, B_t), col = 2)
+```
+
+TDis is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r, }
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
