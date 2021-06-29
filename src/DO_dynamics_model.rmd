@@ -36,22 +36,24 @@ $$\frac{\delta VC}{\delta t} = -\frac{\delta q_z}{\delta z} + S$$
 
 Integrate with respect to z and define fluxes per unit ground area A assuming the channel is rectangular with a depth of D
 
-$$\frac{\delta D\overline{C}}{\delta t} = q(D) - q(0) + \int_0^D Sdz$$
+$$\frac{\delta H\overline{C}}{\delta t} = q(H) - q(0) + \int_0^H Sdz$$
 
 where:
 $\overline{C}$ is the depth-averaged concentration,
-$q(D) = k(C_{sat} - \overline{C})$ is the exchange of oxygen with the atmosphere 
+$H$ is the depth 
+$q(H) = k(C_{sat} - \overline{C})$ is the exchange of oxygen with the atmosphere 
 $B(t) = -q(0) + \int_0^DSdz$ represents biological production and consumption of oxygen 
 
 So we can describe the biological time series as a function of $\overline{C}(t)$, depth, discharge, and riverbed slope using empirical equations:
 
-$$ B(t) = \frac{d(D\overline{C})}{dt} - k(C_{sat} - \overline{C})$$
+$$ B(t) = \frac{d(H\overline{C})}{dt} - k(C_{sat} - \overline{C})$$
 
 ## Example Stream: 
 # New Hope Creek
 
 ```{r, include = FALSE}
-dat <- read_csv("C:/Users/Alice Carter/git/nhc_50yl/NHC_2019_metabolism/data/metabolism/processed/NHC.csv")
+dat <- read_csv("C:/Users/Alice Carter/git/nhc_50yl/NHC_2019_metabolism/data/metabolism/processed/NHC.csv",
+                guess_max = 10000)
 dat <- filter(dat, year(DateTime_UTC) == 2019)
 
 # load site data
@@ -71,38 +73,33 @@ dat %>%
 
 ```{r}
 m_dat <- dat %>%
-  select(DateTime_UTC, DO.obs, avg_velocity, DO.sat, depth, temp.water) %>%
+  # filter(!is.na(DO.obs)) %>%
+  # select(DateTime_UTC, DO.obs, avg_velocity, DO.sat, depth, temp.water) %>%
   mutate(slope = nhc_slope,
          # v_ms = calc_vel_from_disch(discharge),
-         k600_mean = calc_k600_raymond5(slope, avg_velocity),
+         k600_mean = calc_k600_raymond5(slope, avg_velocity), # m/d
          # k600_min = calc_k600_raymond5(slope, avg_velocity)[2],
          # k600_max = calc_k600_raymond5(slope, avg_velocity)[3],
          k_O2_mean = kO2fromk600(k600_mean, temp.water),
-         q_D = k_O2_mean * (DO.sat - DO.obs)*24*4*depth, # mg/L/15min
-         dCdt = c(NA, diff(dat$DO.obs)), # mg/L/15min
-         B_t = dCdt - q_D) # biological timeseries
+         q_D_gm2d = k_O2_mean * (DO.sat - DO.obs), # m/d * mg/L  = g/m2d
+         dHCdt_gm2d = c(NA, diff(dat$DO.obs))*depth/15*60*24, # mg/L/min * 60 min/h * 24 h/d
+         B_gm2d = dHCdt_gm2d - q_D_gm2d) # biological timeseries mg/m2/d
          
 m_dat %>%
   filter(month(DateTime_UTC) == 3) %>%
-  ggplot(aes(DateTime_UTC, DO.obs)) +
+  ggplot(aes(DateTime_UTC, dHCdt_gm2d)) +
   geom_line() +
-  geom_line(aes(DateTime_UTC, B_t), col = 2)
+  geom_line(aes(DateTime_UTC, B_gm2d), col = 2)
 ```
 
-TDis is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r, }
-summary(cars)
+```{r}
+daily <- m_dat %>%
+  mutate(date = as.Date(with_tz(DateTime_UTC, tz = "EST"))) %>%
+  group_by(date) %>%
+  summarize_all(list(mean = mean, min = min, max = max)) %>%
+  select(date, DO_mean = DO.obs_mean, starts_with(c("B_")), 
+         depth_m = depth_mean, q_m3s = discharge_mean, temp_C = temp.water_mean,
+         spc_mScm = SpecCond_mScm_mean, turb = Turbidity_mV_mean, 
+        light = light_mean)
+pairs(daily)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
